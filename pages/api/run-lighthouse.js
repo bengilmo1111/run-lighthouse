@@ -1,3 +1,12 @@
+export default async function handler(req, res) {
+  console.log("API called with method:", req.method);
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+  // ...rest of code...
+}
+
 // pages/api/run-lighthouse.js
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
