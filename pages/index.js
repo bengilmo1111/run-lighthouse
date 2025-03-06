@@ -9,12 +9,10 @@ export default function Home() {
     setLoading(true);
     setDownloadUrl('');
     try {
-      // Send a GET request to your static API endpoint
       const res = await fetch('/api/run-lighthouse');
       if (!res.ok) {
         throw new Error(`Server error: ${res.status}`);
       }
-      // Assume the API returns a CSV blob for download
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);

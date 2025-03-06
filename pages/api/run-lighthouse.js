@@ -1,7 +1,6 @@
 // pages/api/run-lighthouse.js
 import lighthouse from 'lighthouse';
-import { launch } from 'chrome-launcher';
-import os from 'os';
+import chromeLambda from 'chrome-aws-lambda';
 
 export const config = {
   api: {
@@ -10,10 +9,15 @@ export const config = {
 };
 
 async function runLighthouse(url) {
-  // Launch Chrome with extra flags for Vercel's environment
-  const chrome = await launch({ 
-    chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu'] 
+  // Use chrome-aws-lambda's executablePath and args to launch Chrome
+  const executablePath = await chromeLambda.executablePath;
+  const chrome = await chromeLambda.launch({
+    args: chromeLambda.args,
+    executablePath,
+    headless: chromeLambda.headless,
   });
+  
+  // Set Lighthouse flags
   const flags = {
     port: chrome.port,
     output: 'json',
@@ -21,21 +25,10 @@ async function runLighthouse(url) {
     emulatedFormFactor: 'desktop',
     locale: 'en-US',
   };
+  
   const result = await lighthouse(url, flags);
   await chrome.kill();
   return result.report;
-}
-
-async function runLighthouseWithRetry(url, retries = 2) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await runLighthouse(url);
-    } catch (error) {
-      console.error(`Error processing ${url} on attempt ${attempt}: ${error.message}`);
-      if (attempt === retries) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-  }
 }
 
 function convertToCSV(data) {
@@ -51,19 +44,20 @@ function convertToCSV(data) {
 }
 
 export default async function handler(req, res) {
-  // For simplicity, we allow GET requests (instead of POST) when using a static list.
+  // For simplicity, we allow GET requests when using a static list.
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed. Please use GET.' });
     return;
   }
-
-  // Define a static list of URLs
+  
+  // Define your static list of URLs
   const urls = [
     'https://central.xero.com/s/',
     'https://central.xero.com/s/topiccatalog',
     'https://central.xero.com/s/session-log-out',
     'https://central.xero.com/s/contact-support-mfa',
     'https://central.xero.com/s/contact-support-login',
+    'https://central.xero.com/s/learning'
   ];
 
   console.log("Static URLs:", urls);
@@ -71,7 +65,7 @@ export default async function handler(req, res) {
   const csvData = [];
   for (const url of urls) {
     try {
-      const report = await runLighthouseWithRetry(url);
+      const report = await runLighthouse(url);
       const jsonData = JSON.parse(report);
       const categories = jsonData.categories;
       csvData.push({
@@ -80,6 +74,7 @@ export default async function handler(req, res) {
         accessibility: categories.accessibility ? categories.accessibility.score : null,
         bestPractices: categories['best-practices'] ? categories['best-practices'].score : null,
         seo: categories.seo ? categories.seo.score : null,
+        pwa: categories.pwa ? categories.pwa.score : null,
       });
       console.log(`Metrics for ${url} collected.`);
     } catch (error) {
