@@ -10,7 +10,10 @@ export const config = {
 };
 
 async function runLighthouse(url) {
-  const chrome = await launch({ chromeFlags: ['--headless'] });
+  // Launch Chrome with extra flags for Vercel's environment
+  const chrome = await launch({ 
+    chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu'] 
+  });
   const flags = {
     port: chrome.port,
     output: 'json',
