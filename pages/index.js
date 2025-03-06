@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 export default function Home() {
   const [file, setFile] = useState(null);
-  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleFileChange = (e) => {
@@ -12,26 +12,36 @@ export default function Home() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file) {
+      alert('Please select a CSV file.');
+      return;
+    }
     setLoading(true);
     const formData = new FormData();
     formData.append('csv', file);
-    const res = await fetch('/api/run-lighthouse', {
-      method: 'POST',
-      body: formData,
-    });
-    if (res.ok) {
+
+    try {
+      // Explicitly set method to POST and provide the FormData
+      const res = await fetch('/api/run-lighthouse', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+      // Assume the response is a CSV blob for download
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
-    } else {
-      alert('Error running Lighthouse');
+    } catch (error) {
+      console.error('Error uploading CSV:', error);
+      alert(error.message);
     }
     setLoading(false);
   };
 
   return (
-    <div style={{ padding: '2rem' }}>
+    <div>
       <h1>Lighthouse CSV Runner</h1>
       <form onSubmit={handleSubmit}>
         <input type="file" accept=".csv" onChange={handleFileChange} />
