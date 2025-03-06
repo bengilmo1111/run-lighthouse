@@ -2,56 +2,43 @@
 import { useState } from 'react';
 
 export default function Home() {
-  const [file, setFile] = useState(null);
-  const [downloadUrl, setDownloadUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState('');
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!file) {
-      alert('Please select a CSV file.');
-      return;
-    }
+  const handleRunLighthouse = async () => {
     setLoading(true);
-    const formData = new FormData();
-    formData.append('csv', file);
-
+    setDownloadUrl('');
     try {
-      // Explicitly set method to POST and provide the FormData
-      const res = await fetch('/api/run-lighthouse', {
-        method: 'POST',
-        body: formData,
-      });
+      // Send a GET request to your static API endpoint
+      const res = await fetch('/api/run-lighthouse');
       if (!res.ok) {
         throw new Error(`Server error: ${res.status}`);
       }
-      // Assume the response is a CSV blob for download
+      // Assume the API returns a CSV blob for download
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
     } catch (error) {
-      console.error('Error uploading CSV:', error);
+      console.error('Error running Lighthouse:', error);
       alert(error.message);
     }
     setLoading(false);
   };
 
   return (
-    <div>
-      <h1>Lighthouse CSV Runner</h1>
-      <form onSubmit={handleSubmit}>
-        <input type="file" accept=".csv" onChange={handleFileChange} />
-        <button type="submit" disabled={loading}>Run Lighthouse</button>
-      </form>
-      {loading && <p>Processing...</p>}
+    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+      <h1>Lighthouse Static URL Runner</h1>
+      <button onClick={handleRunLighthouse} disabled={loading}>
+        {loading ? 'Processing...' : 'Run Lighthouse'}
+      </button>
+      {loading && <p>Please wait while we process the URLs...</p>}
       {downloadUrl && (
-        <div>
-          <p>Processing complete. <a href={downloadUrl} download="lighthouse-results.csv">Download CSV</a></p>
-        </div>
+        <p>
+          Processing complete.{' '}
+          <a href={downloadUrl} download="lighthouse-results.csv">
+            Download CSV
+          </a>
+        </p>
       )}
     </div>
   );

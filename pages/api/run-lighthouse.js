@@ -77,7 +77,6 @@ export default async function handler(req, res) {
         accessibility: categories.accessibility ? categories.accessibility.score : null,
         bestPractices: categories['best-practices'] ? categories['best-practices'].score : null,
         seo: categories.seo ? categories.seo.score : null,
-        pwa: categories.pwa ? categories.pwa.score : null,
       });
       console.log(`Metrics for ${url} collected.`);
     } catch (error) {
