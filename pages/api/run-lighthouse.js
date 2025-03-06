@@ -3,18 +3,18 @@ import { IncomingForm } from 'formidable';
 import fs from 'fs';
 import lighthouse from 'lighthouse';
 import { launch } from 'chrome-launcher';
-import { parse } from 'csv-parse/sync'; // synchronous CSV parser
+import { parse } from 'csv-parse/sync';
 
 export const config = {
   api: {
-    bodyParser: false, // Disables Next.js built-in body parser so formidable can handle it
+    bodyParser: false, // Disable Next.js' default body parser
   },
 };
 
 async function runLighthouse(url) {
   // Launch Chrome in headless mode
   const chrome = await launch({ chromeFlags: ['--headless'] });
-  // Increase maxWaitForLoad to 60 seconds and set emulated form factor to desktop
+  // Use JSON output and set desktop emulation
   const flags = {
     port: chrome.port,
     output: 'json',
@@ -33,7 +33,7 @@ async function runLighthouseWithRetry(url, retries = 2) {
     } catch (error) {
       console.error(`Error processing ${url} on attempt ${attempt}: ${error.message}`);
       if (attempt === retries) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 }
@@ -51,25 +51,38 @@ function convertToCSV(data) {
 }
 
 export default async function handler(req, res) {
+  // Only allow POST requests
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
 
-  // Parse the form using formidable
-  const form = new IncomingForm();
+  // Configure formidable to use /tmp for uploads
+  const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
+  
   form.parse(req, async (err, fields, files) => {
     if (err) {
+      console.error('Form parsing error:', err);
       res.status(500).json({ error: 'Error parsing form data' });
       return;
     }
+    
     const csvFile = files.csv;
     if (!csvFile) {
       res.status(400).json({ error: 'CSV file is required' });
       return;
     }
-    const csvContent = fs.readFileSync(csvFile.filepath, 'utf8');
-    // Try to parse CSV assuming a header column "url". Otherwise, treat each line as a URL.
+    
+    let csvContent;
+    try {
+      csvContent = fs.readFileSync(csvFile.filepath, 'utf8');
+    } catch (error) {
+      console.error('Error reading CSV file:', error);
+      res.status(500).json({ error: 'Error reading CSV file' });
+      return;
+    }
+    
+    // Parse CSV content; if there's a header column "url", use it; otherwise treat each line as a URL.
     let records = parse(csvContent, {
       columns: true,
       skip_empty_lines: true,
@@ -97,12 +110,10 @@ export default async function handler(req, res) {
           pwa: categories.pwa ? categories.pwa.score : null,
         });
       } catch (error) {
-        csvData.push({
-          url: url,
-          error: error.message,
-        });
+        csvData.push({ url: url, error: error.message });
       }
     }
+    
     const csvString = convertToCSV(csvData);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=lighthouse-results.csv');
