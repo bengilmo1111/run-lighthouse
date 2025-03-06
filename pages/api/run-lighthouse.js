@@ -1,17 +1,11 @@
 // pages/api/run-lighthouse.js
-import { IncomingForm } from 'formidable';
-import fs from 'fs';
 import lighthouse from 'lighthouse';
 import { launch } from 'chrome-launcher';
-import { parse } from 'csv-parse/sync';
 import os from 'os';
-
-// Force Lighthouse to use US English
-process.env.LIGHTHOUSE_LOCALE = 'en-US';
 
 export const config = {
   api: {
-    bodyParser: false, // Disable Next.js' default body parser
+    bodyParser: false,
   },
 };
 
@@ -54,102 +48,46 @@ function convertToCSV(data) {
 }
 
 export default async function handler(req, res) {
-  // Handle preflight OPTIONS requests
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.status(200).end();
+  // For simplicity, we allow GET requests (instead of POST) when using a static list.
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed. Please use GET.' });
     return;
   }
 
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+  // Define a static list of URLs
+  const urls = [
+    'https://central.xero.com/s/',
+    'https://central.xero.com/s/topiccatalog',
+    'https://central.xero.com/s/session-log-out',
+    'https://central.xero.com/s/contact-support-mfa',
+    'https://central.xero.com/s/contact-support-login',
+  ];
 
-  // Use the system temporary directory
-  const form = new IncomingForm({ uploadDir: os.tmpdir(), keepExtensions: true });
+  console.log("Static URLs:", urls);
   
-  form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error('Form parsing error:', err);
-      res.status(500).json({ error: 'Error parsing form data' });
-      return;
-    }
-    
-    console.log('Uploaded files:', files);
-    
-    // Handle the case where files.csv is an array
-    const csvFiles = files.csv;
-    const csvFile = Array.isArray(csvFiles) ? csvFiles[0] : csvFiles;
-    
-    if (!csvFile) {
-      res.status(400).json({ error: 'CSV file is required' });
-      return;
-    }
-    
-    let csvContent;
+  const csvData = [];
+  for (const url of urls) {
     try {
-      const filePath = csvFile.filepath || csvFile.path;
-      if (!filePath) {
-        console.error('File path is undefined in the uploaded file:', csvFile);
-        res.status(500).json({ error: 'File path is undefined in the uploaded file.' });
-        return;
-      }
-      console.log('Attempting to read file at:', filePath);
-      csvContent = fs.readFileSync(filePath, 'utf8');
-      console.log('CSV content read successfully.');
-    } catch (error) {
-      console.error('Error reading CSV file:', error);
-      res.status(500).json({ error: 'Error reading CSV file' });
-      return;
-    }
-    
-    let records;
-    try {
-      records = parse(csvContent, {
-        columns: true,
-        skip_empty_lines: true,
+      const report = await runLighthouseWithRetry(url);
+      const jsonData = JSON.parse(report);
+      const categories = jsonData.categories;
+      csvData.push({
+        url: jsonData.finalUrl || url,
+        performance: categories.performance ? categories.performance.score : null,
+        accessibility: categories.accessibility ? categories.accessibility.score : null,
+        bestPractices: categories['best-practices'] ? categories['best-practices'].score : null,
+        seo: categories.seo ? categories.seo.score : null,
+        pwa: categories.pwa ? categories.pwa.score : null,
       });
+      console.log(`Metrics for ${url} collected.`);
     } catch (error) {
-      console.error('Error parsing CSV content with header:', error);
-      records = [];
+      console.error(`Error processing ${url}:`, error);
+      csvData.push({ url: url, error: error.message });
     }
-    
-    let urls = [];
-    if (records.length > 0 && records[0].url) {
-      urls = records.map(rec => rec.url);
-    } else {
-      urls = csvContent.split('\n').filter(line => line.trim() !== '');
-    }
-
-    console.log("Parsed URLs:", urls);
-    
-    const csvData = [];
-    for (const url of urls) {
-      try {
-        const report = await runLighthouseWithRetry(url);
-        const jsonData = JSON.parse(report);
-        const categories = jsonData.categories;
-        csvData.push({
-          url: jsonData.finalUrl || url,
-          performance: categories.performance ? categories.performance.score : null,
-          accessibility: categories.accessibility ? categories.accessibility.score : null,
-          bestPractices: categories['best-practices'] ? categories['best-practices'].score : null,
-          seo: categories.seo ? categories.seo.score : null,
-          pwa: categories.pwa ? categories.pwa.score : null,
-        });
-        console.log(`Metrics for ${url} collected.`);
-      } catch (error) {
-        console.error(`Error processing ${url}:`, error);
-        csvData.push({ url: url, error: error.message });
-      }
-    }
-    
-    const csvString = convertToCSV(csvData);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=lighthouse-results.csv');
-    res.status(200).send(csvString);
-  });
+  }
+  
+  const csvString = convertToCSV(csvData);
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=lighthouse-results.csv');
+  res.status(200).send(csvString);
 }
