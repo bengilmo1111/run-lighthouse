@@ -4,6 +4,7 @@ import fs from 'fs';
 import lighthouse from 'lighthouse';
 import { launch } from 'chrome-launcher';
 import { parse } from 'csv-parse/sync';
+import os from 'os';
 
 export const config = {
   api: {
@@ -12,14 +13,13 @@ export const config = {
 };
 
 async function runLighthouse(url) {
-  // Launch Chrome in headless mode
   const chrome = await launch({ chromeFlags: ['--headless'] });
-  // Use JSON output and set desktop emulation
   const flags = {
     port: chrome.port,
     output: 'json',
     maxWaitForLoad: 60000,
     emulatedFormFactor: 'desktop',
+    locale: 'en-US',
   };
   const result = await lighthouse(url, flags);
   await chrome.kill();
@@ -51,14 +51,13 @@ function convertToCSV(data) {
 }
 
 export default async function handler(req, res) {
-  // Only allow POST requests
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
 
-  // Configure formidable to use /tmp for uploads
-  const form = new IncomingForm({ uploadDir: '/tmp', keepExtensions: true });
+  // Use the system temporary directory
+  const form = new IncomingForm({ uploadDir: os.tmpdir(), keepExtensions: true });
   
   form.parse(req, async (err, fields, files) => {
     if (err) {
@@ -67,7 +66,12 @@ export default async function handler(req, res) {
       return;
     }
     
-    const csvFile = files.csv;
+    console.log('Uploaded files:', files);
+    
+    // Handle the case where files.csv is an array
+    const csvFiles = files.csv;
+    const csvFile = Array.isArray(csvFiles) ? csvFiles[0] : csvFiles;
+    
     if (!csvFile) {
       res.status(400).json({ error: 'CSV file is required' });
       return;
@@ -75,18 +79,32 @@ export default async function handler(req, res) {
     
     let csvContent;
     try {
-      csvContent = fs.readFileSync(csvFile.filepath, 'utf8');
+      const filePath = csvFile.filepath || csvFile.path;
+      if (!filePath) {
+        console.error('File path is undefined in the uploaded file:', csvFile);
+        res.status(500).json({ error: 'File path is undefined in the uploaded file.' });
+        return;
+      }
+      console.log('Attempting to read file at:', filePath);
+      csvContent = fs.readFileSync(filePath, 'utf8');
+      console.log('CSV content read successfully.');
     } catch (error) {
       console.error('Error reading CSV file:', error);
       res.status(500).json({ error: 'Error reading CSV file' });
       return;
     }
     
-    // Parse CSV content; if there's a header column "url", use it; otherwise treat each line as a URL.
-    let records = parse(csvContent, {
-      columns: true,
-      skip_empty_lines: true,
-    });
+    let records;
+    try {
+      records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+      });
+    } catch (error) {
+      console.error('Error parsing CSV content with header:', error);
+      records = [];
+    }
+    
     let urls = [];
     if (records.length > 0 && records[0].url) {
       urls = records.map(rec => rec.url);
@@ -94,7 +112,8 @@ export default async function handler(req, res) {
       urls = csvContent.split('\n').filter(line => line.trim() !== '');
     }
 
-    // Process URLs sequentially
+    console.log("Parsed URLs:", urls);
+    
     const csvData = [];
     for (const url of urls) {
       try {
@@ -109,7 +128,9 @@ export default async function handler(req, res) {
           seo: categories.seo ? categories.seo.score : null,
           pwa: categories.pwa ? categories.pwa.score : null,
         });
+        console.log(`Metrics for ${url} collected.`);
       } catch (error) {
+        console.error(`Error processing ${url}:`, error);
         csvData.push({ url: url, error: error.message });
       }
     }
