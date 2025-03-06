@@ -6,6 +6,9 @@ import { launch } from 'chrome-launcher';
 import { parse } from 'csv-parse/sync';
 import os from 'os';
 
+// Force Lighthouse to use US English
+process.env.LIGHTHOUSE_LOCALE = 'en-US';
+
 export const config = {
   api: {
     bodyParser: false, // Disable Next.js' default body parser
